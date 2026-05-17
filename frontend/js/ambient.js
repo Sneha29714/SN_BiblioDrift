@@ -1,6 +1,7 @@
 /**
  * Ambient Sanctuary Logic for BiblioDrift
  * Handles background ambient sounds (Rain, Fireplace) with volume control.
+ * FIXED: Volume now persists across pages using localStorage
  */
 
 class AmbientManager {
@@ -21,12 +22,9 @@ class AmbientManager {
         this.fireAudio.loop = true;
 
         // Prevent the weird 'high bass' or thunder sound at the very end of the rain track
-        // by artificially looping it a few seconds before the track actually ends.
         this.rainAudio.addEventListener('timeupdate', () => {
-            // Cut off the last 4 seconds to bypass the microphone bump/thunder
             if (this.rainAudio.duration && this.rainAudio.currentTime >= this.rainAudio.duration - 4) {
                 this.rainAudio.currentTime = 0;
-                // Ensure it keeps playing after reset
                 this.rainAudio.play().catch(e => {});
             }
         });
@@ -43,17 +41,68 @@ class AmbientManager {
         };
         window.addEventListener('click', this.unlockAudio);
 
+        // FIXED: Load saved volume from localStorage
+        this.loadVolume();
+        this.loadAudioStates();
         this.init();
-        // Ensure volume is set immediately
-        this.rainAudio.volume = 0.5;
-        this.fireAudio.volume = 0.5;
+    }
+
+    /**
+     * Load volume preference from localStorage
+     */
+    loadVolume() {
+        const savedVolume = localStorage.getItem('bibliodrift_ambient_volume');
+        const volume = savedVolume !== null ? parseFloat(savedVolume) : 0.5;
+        
+        // Set audio volumes
+        this.rainAudio.volume = volume;
+        this.fireAudio.volume = volume;
+        
+        // Set slider to match
+        if (this.volumeSlider) {
+            this.volumeSlider.value = volume;
+        }
+        
+        console.log(`Loaded ambient volume: ${volume}`);
+    }
+    /**
+     * Load audio states from localStorage
+     */
+    loadAudioStates() {
+        const rainState = localStorage.getItem('bibliodrift_rain_state');
+        const fireState = localStorage.getItem('bibliodrift_fire_state');
+        
+        if (rainState === 'true') {
+            this.rainToggle.checked = true;
+            this.rainAudio.play().catch(e => {});
+        }
+        
+        if (fireState === 'true') {
+            this.fireToggle.checked = true;
+            this.fireAudio.play().catch(e => {});
+        }
+    }
+    
+    /**
+     * Save audio state to localStorage
+     */
+    saveAudioState(type, isPlaying) {
+        localStorage.setItem(`bibliodrift_${type}_state`, isPlaying.toString());
+    }
+
+    /**
+     * Save volume preference to localStorage
+     */
+    saveVolume(volume) {
+        localStorage.setItem('bibliodrift_ambient_volume', volume.toString());
+        console.log(`Saved ambient volume: ${volume}`);
     }
 
     init() {
         // Toggle Panel
         this.toggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.unlockAudio(); // Explicitly unlock audio here since propagation is stopped!
+            this.unlockAudio();
             this.panel.classList.toggle('active');
         });
 
@@ -68,44 +117,41 @@ class AmbientManager {
         this.rainToggle.addEventListener('change', () => {
             if (this.rainToggle.checked) {
                 this.rainAudio.currentTime = 0;
-                this.rainAudio.play()
-                    .then(() => console.log("Rain audio playing"))
-                    .catch(e => {
-                        console.error("Rain audio failed:", e);
-                        if (typeof showToast === 'function') {
-                            showToast("Audio playback blocked. Click anywhere to enable.", "info");
-                        }
-                    });
+                this.rainAudio.play().then(() => {
+                    console.log("Rain audio playing");
+                    this.saveAudioState('rain', true); // ADD THIS
+                }).catch(e => {
+                    console.error("Rain audio failed:", e);
+                });
             } else {
                 this.rainAudio.pause();
+                this.saveAudioState('rain', false); // ADD THIS
             }
         });
 
-        // Fire Toggle
+        // Fire Toggle - ADD saveAudioState
         this.fireToggle.addEventListener('change', () => {
             if (this.fireToggle.checked) {
                 this.fireAudio.currentTime = 0;
-                this.fireAudio.play()
-                    .then(() => console.log("Fire audio playing"))
-                    .catch(e => {
-                        console.error("Fire audio failed:", e);
-                    });
+                this.fireAudio.play().then(() => {
+                    console.log("Fire audio playing");
+                    this.saveAudioState('fire', true); // ADD THIS
+                }).catch(e => {
+                    console.error("Fire audio failed:", e);
+                });
             } else {
                 this.fireAudio.pause();
+                this.saveAudioState('fire', false); // ADD THIS
             }
         });
 
-        // Volume Control
+        // FIXED: Volume Control - now saves to localStorage
         this.volumeSlider.addEventListener('input', () => {
             const volume = parseFloat(this.volumeSlider.value);
             this.rainAudio.volume = volume;
             this.fireAudio.volume = volume;
+            this.saveVolume(volume); // Save to localStorage
         });
-
-        // Initial sync
-        const startVolume = parseFloat(this.volumeSlider.value) || 0.5;
-        this.rainAudio.volume = startVolume;
-        this.fireAudio.volume = startVolume;
     }
 }
 
