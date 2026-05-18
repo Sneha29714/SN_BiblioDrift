@@ -1,19 +1,11 @@
-/**
- * BiblioDrift — Unified Front-End Storage & View Controller Engine
- * Core Architecture: Decoupled client-side asset pipeline handling browser-isolated
- * IndexedDB persistence via Dexie vs public metadata syncs to the Flask backend API.
- */
 
-// Centralized, production-grade Dexie database instantiation
+// Dexie database instantiation
 const vaultDb = new Dexie("BiblioDriftVaultDB");
 vaultDb.version(4).stores({
     securedFiles: '++id, name, type, size, genre, privacy, uploadedAt'
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // ==========================================
-    // 1. DOM Element Node Registration
-    // ==========================================
     const fileInput = document.getElementById('vaultFileInput');
     const uploadBtn = document.getElementById('uploadBtn');
     const vaultGrid = document.getElementById('vault-grid');
@@ -21,19 +13,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fileFeedback = document.getElementById('fileSelectedFeedback');
     const searchInput = document.getElementById('searchInput');
     const libraryGridTarget = document.getElementById('library-books-grid');
-    
-    // Form Input Nodes
     const metadataFormSection = document.getElementById('metadataFormSection');
     const fileGenre = document.getElementById('fileGenre');
     const fileDescription = document.getElementById('fileDescription');
-
-    // Contextual Privacy Node Selection Adjustments
     const cardPrivate = document.getElementById("pCardPrivate");
     const cardPublic = document.getElementById("pCardPublic");
     const radPrivate = document.getElementById("radPrivate");
     const radPublic = document.getElementById("radPublic");
 
-    // Dynamic browser memory allocation tracking pool
     let activeObjectUrlsPool = [];
 
     function clearActiveObjectUrls() {
@@ -41,10 +28,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         activeObjectUrlsPool = [];
     }
 
-    // ==========================================
-    // 2. View Switching Initialization Cascades
-    // ==========================================
-    // Paint dynamic workspace components depending on layout contexts detected
     if (vaultGrid) {
         displayVaultFiles();
     }
@@ -52,10 +35,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (libraryGridTarget) {
         integrateVaultIntoLibrary(libraryGridTarget);
     }
-
-    // ==========================================
-    // 3. UI Element Click Handling Framework
-    // ==========================================
     if (cardPrivate && radPrivate) {
         cardPrivate.addEventListener("click", () => { radPrivate.checked = true; });
     }
@@ -76,10 +55,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (fileInput) {
         fileInput.addEventListener('change', updateFileInputFeedback);
     }
-
-    // ==========================================
-    // 4. Drag and Drop Interaction Event Loops
-    // ==========================================
     if (dropZone && fileInput) {
         ['dragenter', 'dragover'].forEach(eventName => {
             dropZone.addEventListener(eventName, (e) => {
@@ -105,9 +80,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // ==========================================
-    // 5. Storage Pipeline Form Commit Controller
-    // ==========================================
     if (uploadBtn && fileInput) {
         uploadBtn.addEventListener('click', async () => {
             const file = fileInput.files[0];
@@ -129,7 +101,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const inputDescValue = fileDescription ? fileDescription.value.trim() : 'No annotation summary log notes provided.';
 
             try {
-                // Throttle interface access buttons during execution loop
                 uploadBtn.disabled = true;
                 uploadBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Encrypting & Securing...`;
 
@@ -148,25 +119,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                     alert("System Error: The file stream could not be processed into a valid binary object.");
                     return;
                 }
-
-                // Write out into sandboxed IndexedDB space
                 await vaultDb.securedFiles.add(targetDocumentModel);
-
-                // Check authorization logic and mirror metadata schemas onto cloud feeds if public
                 if (selectedPrivacy === 'public') {
                     await syncDocumentToFlaskCloud(targetDocumentModel);
                 } else {
                     alert(`Success: "${file.name}" successfully committed inside your isolated local browser workspace.`);
                 }
-
-                // Reset layout canvas controls cleanly
                 fileInput.value = '';
                 if (fileFeedback) fileFeedback.innerText = '';
                 if (fileDescription) fileDescription.value = '';
                 if (fileGenre) fileGenre.value = 'General';
                 if (metadataFormSection) metadataFormSection.style.display = 'none';
-                
-                // Repaint layout view instances matching current configuration context
                 if (vaultGrid) displayVaultFiles(searchInput ? searchInput.value : '');
                 if (libraryGridTarget) integrateVaultIntoLibrary(libraryGridTarget);
 
@@ -180,9 +143,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // ==========================================
-    // 6. Network Bridge API Processing Engine
-    // ==========================================
     async function syncDocumentToFlaskCloud(docModel) {
         const mockGoogleBooksId = "vault_" + Math.random().toString(36).substring(2, 11);
         
@@ -224,9 +184,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // ==========================================
-    // 7. Grid Matrix View Engine (Vault Context)
-    // ==========================================
     async function displayVaultFiles(filterQuery = '') {
         if (!vaultGrid) return;
         
@@ -330,34 +287,25 @@ document.addEventListener('DOMContentLoaded', async () => {
             vaultGrid.innerHTML = `<p style="color: #e74c3c; text-align: center; grid-column: 1/-1;">Critical Error: Secure local document catalog retrieval failures.</p>`;
         }
     }
-
-    // ==========================================
-    // 8. Integration Engine (Library View Context)
-    // ==========================================
     async function integrateVaultIntoLibrary(targetContainer) {
         try {
             const vaultItems = await vaultDb.securedFiles.toArray();
             if (vaultItems.length === 0) return;
 
-            // Remove previous instances of custom dynamic dividers to avoid stacking duplicates
             const oldDivider = document.getElementById('vault-library-divider');
             if (oldDivider) oldDivider.remove();
             document.querySelectorAll('.vault-injected-card').forEach(el => el.remove());
-
-            // Build section title header
             const divider = document.createElement('div');
             divider.id = 'vault-library-divider';
             divider.style.gridColumn = '1 / -1';
             divider.style.margin = '40px 0 20px 0';
             divider.innerHTML = `
-                <h3 style="font-family: 'Playfair Display', serif; font-size: 1.6rem; display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+                <h3 style="font-family: 'Georgia', serif; font-size: 1.6rem; display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
                     <i class="fa-solid fa-shield-halved" style="color: var(--border-focus, #9b59b6);"></i> Local Vault Documents
                 </h3>
                 <p style="font-size: 0.85rem; opacity: 0.6; margin: 0;">Secured local browser file injections available on this workstation container layer.</p>
             `;
             targetContainer.appendChild(divider);
-
-            // Print local dynamic user uploads inside standard catalog interfaces
             vaultItems.reverse().forEach(item => {
                 const card = document.createElement('div');
                 card.className = 'book-card genre-card vault-injected-card';
@@ -398,10 +346,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error("Failed to cross-reference local database instances on standard layout mapping:", err);
         }
     }
-
-    // ==========================================
-    // 9. Destruction Triggers & Filter Systems
-    // ==========================================
     function initializeDestructionTriggers() {
         const dropButtons = document.querySelectorAll('.purge-item-trigger');
         dropButtons.forEach(button => {
