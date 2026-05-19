@@ -228,17 +228,16 @@ const CollectionAPI = {
     }
 };
 window.CollectionAPI = CollectionAPI;
-import { saveBookOffline, removeOfflineBook, db } from './db.js';
 
 // Example click handler for your custom "Save for Offline" icon
 async function handleDownloadToggle(bookCard, bookData) {
-    const isAlreadyDownloaded = await db.downloadedBooks.get(bookData.id);
+    const isAlreadyDownloaded = await window.db.downloadedBooks.get(bookData.id);
     
     if (isAlreadyDownloaded) {
-        const success = await removeOfflineBook(bookData.id);
+        const success = await window.removeOfflineBook(bookData.id);
         if (success) bookCard.classList.remove('is-downloaded');
     } else {
-        const success = await saveBookOffline(bookData);
+        const success = await window.saveBookOffline(bookData);
         if (success) bookCard.classList.add('is-downloaded');
     }
 }
@@ -1864,6 +1863,10 @@ class LibraryManager {
 
         // 4. Sync with backend if available (Full Refresh)
         await this.syncWithBackend();
+        if (navigator.onLine) {
+            await this.flushPendingLibraryMutations();
+        }
+        await this.updateSyncStatus();
     }
 
     getUser() {
@@ -1881,6 +1884,194 @@ class LibraryManager {
             headers['X-CSRF-TOKEN'] = csrfToken;
         }
         return new Headers(headers);
+    }
+
+    async _getPendingSyncCount() {
+        const user = this.getUser();
+        if (!user || !window.db?.syncQueue) return 0;
+        return await window.db.syncQueue.where('userId').equals(user.id).count();
+    }
+
+    async updateSyncStatus() {
+        const statusEl = document.getElementById('library-sync-status');
+        if (!statusEl) return;
+
+        const pendingCount = await this._getPendingSyncCount();
+        statusEl.hidden = false;
+        statusEl.textContent = pendingCount > 0
+            ? `${pendingCount} pending sync${pendingCount === 1 ? '' : 's'}`
+            : 'Synced';
+        statusEl.dataset.state = pendingCount > 0 ? 'pending' : 'synced';
+    }
+
+    async _queueMutation(action, book, extra = {}) {
+        if (typeof window.enqueueLibraryMutation !== 'function') return;
+
+        const user = this.getUser();
+        if (!user || !window.db?.syncQueue) return;
+
+        const snapshot = JSON.parse(JSON.stringify(book));
+
+        const existingMutations = (await window.db.syncQueue.where('userId').equals(user.id).toArray())
+            .filter((mutation) => mutation.bookId === snapshot.id);
+
+        if (action === 'remove') {
+            await Promise.all(existingMutations.map((mutation) => window.db.syncQueue.delete(mutation.id)));
+            await this.updateSyncStatus();
+            return;
+        }
+
+        const shelf = extra.shelf || this.findBookShelf(snapshot.id) || null;
+        const mergedMutation = {
+            userId: user.id,
+            action,
+            bookId: snapshot.id,
+            db_id: snapshot.db_id || null,
+            shelf,
+            payload: extra,
+            book: snapshot
+        };
+
+        const pendingAdd = existingMutations.find((mutation) => mutation.action === 'add');
+        if (pendingAdd && (action === 'move' || action === 'update')) {
+            await window.db.syncQueue.put({
+                ...pendingAdd,
+                db_id: mergedMutation.db_id || pendingAdd.db_id || null,
+                shelf: action === 'move' ? extra.toShelf || pendingAdd.shelf : pendingAdd.shelf,
+                payload: {
+                    ...(pendingAdd.payload || {}),
+                    ...extra
+                },
+                book: snapshot,
+                createdAt: pendingAdd.createdAt || new Date().toISOString()
+            });
+            await this.updateSyncStatus();
+            return;
+        }
+
+        if (action === 'add') {
+            await Promise.all(existingMutations.map((mutation) => window.db.syncQueue.delete(mutation.id)));
+        }
+
+        await window.enqueueLibraryMutation(mergedMutation);
+        await this.updateSyncStatus();
+    }
+
+    async _applyQueuedMutation(mutation) {
+        const user = this.getUser();
+        if (!user) return;
+
+        const localBookResult = this.findBookInShelf(mutation.bookId);
+        const localBook = localBookResult?.book || mutation.book;
+        const dbId = localBook?.db_id || mutation.db_id;
+
+        if (mutation.action === 'add') {
+            if (!localBook) return;
+
+            const payload = {
+                user_id: user.id,
+                google_books_id: localBook.id,
+                title: localBook.volumeInfo?.title || localBook.title || '',
+                authors: localBook.volumeInfo?.authors ? localBook.volumeInfo.authors.join(', ') : '',
+                thumbnail: localBook.volumeInfo?.imageLinks?.thumbnail || '',
+                shelf_type: mutation.shelf || mutation.payload?.shelf || 'want'
+            };
+
+            const res = await fetch(`${this.apiBase}/library`, {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+            if (localBook) {
+                localBook.db_id = data.item.id;
+                localBook.version = data.item.version;
+                this.saveLocally();
+            }
+            return;
+        }
+
+        if (mutation.action === 'remove') {
+            if (!dbId) return;
+
+            const res = await fetch(`${this.apiBase}/library/${dbId}`, {
+                method: 'DELETE',
+                headers: this.getAuthHeaders(),
+                credentials: 'include'
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
+            return;
+        }
+
+        if (mutation.action === 'move' || mutation.action === 'update') {
+            if (!dbId || !localBook) return;
+
+            const body = mutation.action === 'move'
+                ? {
+                    shelf_type: mutation.payload?.toShelf,
+                    progress: localBook.progress,
+                    version: localBook.version
+                }
+                : {
+                    ...mutation.payload?.updates,
+                    version: localBook.version
+                };
+
+            const res = await fetch(`${this.apiBase}/library/${dbId}`, {
+                method: 'PUT',
+                headers: this.getAuthHeaders(),
+                credentials: 'include',
+                body: JSON.stringify(body)
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+            localBook.version = data.item.version;
+            this.saveLocally();
+        }
+    }
+
+    async flushPendingLibraryMutations() {
+        const user = this.getUser();
+        if (!user || !window.db?.syncQueue) {
+            await this.updateSyncStatus();
+            return 0;
+        }
+
+        const pendingMutations = await window.db.syncQueue.where('userId').equals(user.id).sortBy('createdAt');
+        if (pendingMutations.length === 0) {
+            await this.updateSyncStatus();
+            return 0;
+        }
+
+        let processed = 0;
+        for (const mutation of pendingMutations) {
+            await this._applyQueuedMutation(mutation);
+            await window.db.syncQueue.delete(mutation.id);
+            processed += 1;
+        }
+
+        if (processed > 0) {
+            await this.syncWithBackend();
+        }
+
+        await this.updateSyncStatus();
+        return processed;
     }
 
     async syncWithBackend() {
@@ -1975,6 +2166,7 @@ class LibraryManager {
                         this.renderShelf('finished', 'shelf-finished');
                     }
                 }
+                await this.updateSyncStatus();
             }
         } catch (e) {
             console.error("Sync failed", e);
@@ -2032,6 +2224,7 @@ class LibraryManager {
 
                 // After upload, pull fresh state from backend to get the new DB IDs and versions
                 await this.syncWithBackend();
+                await this.updateSyncStatus();
             } else {
                 const data = await res.json();
                 console.error("Backend refused sync", data);
@@ -2201,10 +2394,12 @@ class LibraryManager {
                     enrichedBook.db_id = data.item.id;
                     enrichedBook.version = data.item.version;
                     this.saveLocally();
+                    await this.updateSyncStatus();
                 }
             } catch (e) {
                 console.error("Failed to save to backend", e);
-                showToast("Saved locally (Sync failed)", "info");
+                await this._queueMutation('add', enrichedBook, { shelf });
+                showToast("Saved locally; sync queued", "info");
             }
         }
     }
@@ -2250,6 +2445,7 @@ class LibraryManager {
                     const data = await res.json();
                     book.version = data.item.version;
                     this.saveLocally();
+                    await this.updateSyncStatus();
                 } else if (res.status === 409) {
                     const data = await res.json();
                     showToast("Conflict detected! Syncing with server...", "error");
@@ -2261,7 +2457,8 @@ class LibraryManager {
                 }
             } catch (e) {
                 console.error("Failed to update backend", e);
-                showToast("Saved locally (Sync failed)", "info");
+                await this._queueMutation('update', book, { updates });
+                showToast("Saved locally; sync queued", "info");
             }
         }
     }
@@ -2325,9 +2522,11 @@ class LibraryManager {
                         headers: this.getAuthHeaders(),
                         credentials: 'include'
                     });
+                    await this.updateSyncStatus();
                 } catch (e) {
                     console.error("Failed to delete from backend", e);
-                    showToast("Removed locally (Backend sync failed)", "info");
+                    await this._queueMutation('remove', book, { shelf });
+                    showToast("Removed locally; sync queued", "info");
                 }
             } else if (user) {
                 // Fallback: If we don't have db_id locally (maybe added before login logic), 
@@ -2379,6 +2578,7 @@ class LibraryManager {
                     const data = await res.json();
                     book.version = data.item.version;
                     this.saveLocally();
+                    await this.updateSyncStatus();
                 } else if (res.status === 409) {
                     showToast("Conflict detected! Syncing with server...", "error");
                     await this.syncWithBackend();
@@ -2389,10 +2589,12 @@ class LibraryManager {
                 }
             } catch (e) {
                 console.error("Failed to update backend during move", e);
-                showToast("Moved locally (Sync failed)", "info");
+                await this._queueMutation('move', book, { fromShelf, toShelf });
+                showToast("Moved locally; sync queued", "info");
             }
         }
 
+        await this.updateSyncStatus();
         return true;
     }
 
