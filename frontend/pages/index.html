@@ -10,9 +10,46 @@
         document.documentElement.setAttribute('data-theme', 'night');
       }
     })();
-  </script>
-  <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+document.addEventListener('DOMContentLoaded', function () {
+    const btn = document.getElementById('themeToggle');
+    if (!btn) {
+        console.error('themeToggle button not found');
+        return;
+    }
 
+    const icon = btn.querySelector('i');
+    const STORAGE_KEY = 'bibliodrift_theme';
+
+    function applyTheme(theme) {
+        if (theme === 'night') {
+            document.documentElement.setAttribute('data-theme', 'night');
+            if (icon) icon.className = 'fa-solid fa-sun';
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+            if (icon) icon.className = 'fa-solid fa-moon';
+        }
+
+        localStorage.setItem(STORAGE_KEY, theme);
+        if (typeof restoreTheme === 'function') restoreTheme();
+        console.log('Theme applied:', theme);
+    }
+
+    // Load saved theme
+    const savedTheme = localStorage.getItem(STORAGE_KEY) || 'light';
+    applyTheme(savedTheme);
+
+    // Toggle on click
+    btn.addEventListener('click', function () {
+        const current =
+            document.documentElement.getAttribute('data-theme') === 'night'
+                ? 'night'
+                : 'light';
+
+        const next = current === 'night' ? 'light' : 'night';
+        applyTheme(next);
+    });
+});
+  </script>
   <script src="../js/db.js"></script>
 
   <!-- <script src="../js/app.js"></script> -->
@@ -38,7 +75,6 @@
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
   <link rel="icon" href="../assets/images/biblioDrift_favicon.png" type="image/png">
   <!-- PWA -->
-  <link rel="manifest" href="../manifest.json">
   <meta name="theme-color" content="#2c2420">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -47,6 +83,11 @@
 </head>
 
 <body>
+  <div id="sc-glow-outer"></div>
+  <div id="sc-glow-mid"></div>
+  <div id="sc-glow-inner"></div>
+  <div id="sc-dot"></div>
+  <header>
     <header>
     <a href="index.html" class="logo">
       <img style="height: 40px" src="../assets/images/biblioDrift_favicon.png" alt="BiblioDrift Logo"> BiblioDrift
@@ -276,62 +317,8 @@
         </label>
       </div>
       <div class="volume-control">
-        <label for="ambientVolume" style="color: var(--text-main) !important;"><i class="fa-solid fa-volume-high"></i> Volume</label>
-        <div class="range-wrap">
-          <div class="range-track" aria-hidden="true"></div>
-          <div class="range-fill" aria-hidden="true"></div>
-          <input type="range" id="ambientVolume" min="0" max="1" step="0.1" value="0.5" style="width: 100%;">
-        </div>
       </div>
     </div>
   </div>
-
-  <script src="../js/theme-manager.js"></script>
-  <script src="../js/ambient.js"></script>
-  <script src="../js/security.js"></script>
-
 </body>
-
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const btn = document.getElementById('themeToggle');
-    if (!btn) {
-        console.error('themeToggle button not found');
-        return;
-    }
-
-    const icon = btn.querySelector('i');
-    const STORAGE_KEY = 'bibliodrift_theme';
-
-    function applyTheme(theme) {
-        if (theme === 'night') {
-            document.documentElement.setAttribute('data-theme', 'night');
-            if (icon) icon.className = 'fa-solid fa-sun';
-        } else {
-            document.documentElement.removeAttribute('data-theme');
-            if (icon) icon.className = 'fa-solid fa-moon';
-        }
-
-        localStorage.setItem(STORAGE_KEY, theme);
-        if (typeof restoreTheme === 'function') restoreTheme();
-        console.log('Theme applied:', theme);
-    }
-
-    // Load saved theme
-    const savedTheme = localStorage.getItem(STORAGE_KEY) || 'light';
-    applyTheme(savedTheme);
-
-    // Toggle on click
-    btn.addEventListener('click', function () {
-        const current =
-            document.documentElement.getAttribute('data-theme') === 'night'
-                ? 'night'
-                : 'light';
-
-        const next = current === 'night' ? 'light' : 'night';
-        applyTheme(next);
-    });
-});
-</script>
-
 </html>
