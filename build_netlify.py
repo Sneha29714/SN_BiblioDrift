@@ -39,6 +39,8 @@ def rewrite_html(content: str) -> str:
         'src="script/header-scroll.js"': 'src="script/header-scroll.js"',
         'src="js/header-scroll.js"': 'src="script/header-scroll.js"',
         '../assets/biblioDrift_favicon.png': 'assets/images/biblioDrift_favicon.png',
+        'href="index.html"': 'href="app.html"',
+        'href="../index.html"': 'href="app.html"',
     }
 
     for pattern, replacement in replacements.items():
@@ -48,7 +50,16 @@ def rewrite_html(content: str) -> str:
 
 def build_html() -> None:
     for html_file in PAGES.glob("*.html"):
-        target_file = DIST / html_file.name
+        if html_file.name == "landing.html":
+            content = html_file.read_text(encoding="utf-8")
+            rewritten = rewrite_html(content)
+            (DIST / "index.html").write_text(rewritten, encoding="utf-8")
+            (DIST / "landing.html").write_text(rewritten, encoding="utf-8")
+            continue
+        elif html_file.name == "index.html":
+            target_file = DIST / "app.html"
+        else:
+            target_file = DIST / html_file.name
         content = html_file.read_text(encoding="utf-8")
         target_file.write_text(rewrite_html(content), encoding="utf-8")
 

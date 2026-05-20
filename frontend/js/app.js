@@ -81,6 +81,7 @@
 // Do NOT re-declare them here — use the globals from config.js directly.
 const IS_DEV = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const moodAnalysisCache = new Map();
+const APP_ROUTE = window.location.pathname.endsWith('/app.html') ? 'app.html' : 'index.html';
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
@@ -2374,7 +2375,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Only redirect to discovery search if we're not already on the library page 
             // where search is handled by the local library filter.
             if (!window.location.pathname.includes('library.html')) {
-                window.location.href = `index.html?q=${encodeURIComponent(searchInput.value.trim())}`;
+                window.location.href = `${APP_ROUTE}?q=${encodeURIComponent(searchInput.value.trim())}`;
             }
         }
     };
@@ -2641,7 +2642,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             SafeStorage.remove('bibliodrift_user');
             SafeStorage.remove('bibliodrift_token');
             SafeStorage.remove('isLoggedIn');
-            window.location.href = 'index.html';
+            window.location.href = APP_ROUTE;
         });
     }
     // Scroll Manager (Back to Top)
