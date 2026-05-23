@@ -962,3 +962,96 @@ def generate_chat_response(user_message: str, conversation_history: list = []) -
     ]
     import random
     return random.choice(variations)
+
+# =========================================================================
+# VIBE-CHECK ENDPOINT LOGIC
+# Implements strict validation and caching per PR #903 feedback.
+# =========================================================================
+
+import hashlib
+from cache_service import cache_service
+
+def generate_vibe_check(raw_vibe_prompt: str, raw_count: int = 5) -> Optional[dict]:
+    """
+    Generate an AI vibe check with strict server-side validation and caching.
+    
+    Args:
+        raw_vibe_prompt: The raw emotional/vibe query from the user.
+        raw_count: The requested number of book recommendations.
+        
+    Returns:
+        Dict containing the AI response and recommendations, or None on failure.
+    """
+    
+    # ---------------------------------------------------------
+    # 1. VALIDATION: Clamp the Count (Security & Cost Control)
+    # ---------------------------------------------------------
+    try:
+        count = int(raw_count)
+        if count < 1:
+            count = 1
+        elif count > 10:  # Hard limit to prevent API abuse
+            count = 10
+    except (ValueError, TypeError):
+        count = 5  # Safe default
+
+    # ---------------------------------------------------------
+    # 2. VALIDATION: Vibe Prompt Length (Prompt Injection Prevention)
+    # ---------------------------------------------------------
+    if not raw_vibe_prompt or not isinstance(raw_vibe_prompt, str):
+        logger.warning("generate_vibe_check: Empty or invalid prompt received.")
+        return None
+        
+    safe_vibe_prompt = raw_vibe_prompt.strip()
+    
+    # Restrict prompt to 400 characters to prevent huge payload bills
+    if len(safe_vibe_prompt) > 400:
+        logger.warning(f"generate_vibe_check: Prompt truncated from {len(safe_vibe_prompt)} chars.")
+        safe_vibe_prompt = safe_vibe_prompt[:400]
+
+    # ---------------------------------------------------------
+    # 3. CACHING: Prevent Expensive Redundant LLM Calls
+    # ---------------------------------------------------------
+    # Create a deterministic hash of the sanitized inputs
+    prompt_hash = hashlib.md5(f"{safe_vibe_prompt}_{count}".encode('utf-8')).hexdigest()
+    cache_key = f"vibe_check_{prompt_hash}"
+    
+    cached_result = cache_service.get(cache_key)
+    if cached_result:
+        logger.info(f"generate_vibe_check: Serving cached response for key {cache_key}")
+        return cached_result
+
+    # ---------------------------------------------------------
+    # 4. LLM GENERATION
+    # ---------------------------------------------------------
+    if not llm_service.is_available():
+        logger.error("generate_vibe_check: No LLM service available.")
+        return None
+
+    # Construct a specific prompt for the vibe check
+    system_prompt = (
+        f"You are a literary vibe-checker. The user has described their current mood: '{safe_vibe_prompt}'. "
+        f"Give them a short, poetic reading diagnosis (under 50 words) and recommend exactly {count} books "
+        "that perfectly match this specific emotional frequency. Format your response clearly."
+    )
+
+    try:
+        response_text = llm_service.generate_text(
+            prompt=system_prompt,
+            max_tokens=llm_service.config.get('recommendation_max_tokens', 250)
+        )
+        
+        if response_text:
+            result = {
+                "vibe_diagnosis": response_text,
+                "sanitized_query": safe_vibe_prompt,
+                "count_returned": count
+            }
+            
+            # Cache the successful result for 24 hours
+            cache_service.set(cache_key, result, timeout=86400)
+            return result
+            
+    except Exception as e:
+        logger.error(f"generate_vibe_check failed: {str(e)}", exc_info=True)
+        return None
