@@ -152,6 +152,55 @@ csrf = CSRFProtect(app)
 # Initialize JWT Manager
 jwt = JWTManager(app)
 
+DEFAULT_CORS_ORIGINS = [
+    "http://127.0.0.1:5500",
+    "http://localhost:5500",
+    "http://127.0.0.1:5501",
+    "http://localhost:5501",
+    "http://127.0.0.1:5000",
+    "http://localhost:5000",
+]
+ALLOWED_CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+ALLOWED_CORS_HEADERS = [
+    "Content-Type",
+    "Authorization",
+    "X-CSRF-TOKEN",
+    "X-CSRF-Token",
+    "X-Requested-With",
+    "Accept",
+]
+
+def _load_cors_origins() -> list[str]:
+    """Load an explicit CORS allowlist from the environment or defaults."""
+    raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+    if raw_origins.strip():
+        return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    return DEFAULT_CORS_ORIGINS
+
+def _apply_security_headers(response):
+    """Apply hardening headers to every API response."""
+    csp_policy = (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+        "style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
+        "connect-src 'self' https: ws: wss:; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'; "
+        "upgrade-insecure-requests"
+    )
+
+    response.headers['Content-Security-Policy'] = csp_policy
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+    response.headers['X-Frame-Options'] = 'DENY'
+    return response
+
 # =====================================================================
 # SECURITY COMPLIANCE UPDATE: CORS CONFIGURATION
 # The previous CORS(app) was overly permissive and allowed all origins.
@@ -162,8 +211,17 @@ jwt = JWTManager(app)
 # optionally load allowed origins from environment variables.
 # =====================================================================
 # ALLOWED_ORIGINS=http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:5000,http://localhost:5000
-# For development, we'll allow all to be safe, then restrict in prod
-CORS(app, supports_credentials=True, origins=["http://127.0.0.1:5500", "http://localhost:5500", "http://127.0.0.1:5501", "http://localhost:5501", "http://127.0.0.1:5000", "http://localhost:5000"])
+# For development, we keep a strict explicit allowlist and never use '*'
+_cors_origins = _load_cors_origins()
+CORS(
+    app,
+    supports_credentials=True,
+    origins=_cors_origins,
+    methods=ALLOWED_CORS_METHODS,
+    allow_headers=ALLOWED_CORS_HEADERS,
+    expose_headers=['Retry-After'],
+    resources={r"/api/*": {"origins": _cors_origins}},
+)
 
 # Initialize cache service
 cache_service.init_app(app)
@@ -557,35 +615,7 @@ def add_security_headers(response):
     Returns:
         response: Response with added security headers
     """
-    csp_policy = (
-        "default-src 'self'; "
-        "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
-        "style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
-        "img-src 'self' data: blob: https:; "
-        "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
-        "connect-src 'self' ws: wss: https:; "
-        "frame-ancestors 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'; "
-        "upgrade-insecure-requests"
-    )
-    response.headers['Content-Security-Policy'] = csp_policy
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-    response.headers['Permissions-Policy'] = (
-        'geolocation=(), '
-        'microphone=(), '
-        'camera=(), '
-        'payment=(), '
-        'usb=(), '
-        'magnetometer=(), '
-        'gyroscope=(), '
-        'accelerometer=()'
-    )
-    return response
+    return _apply_security_headers(response)
 
 # Rate limiting configuration
 RATE_LIMIT_WINDOW = int(os.getenv('RATE_LIMIT_WINDOW', '60'))
