@@ -42,7 +42,7 @@ else:
 
 # Environment variables are now loaded centrally in backend/config.py
 from config import app_config, setup_logging, validate_required_env_vars
-from ai_service import generate_book_note, get_ai_recommendations, get_category_books, get_book_mood_tags_safe, generate_chat_response, llm_service
+from ai_service import generate_book_note, get_ai_recommendations, get_category_books, get_book_mood_tags_safe, generate_chat_response, llm_service, get_vibe_recommendations
 from models import db, User, Book, ShelfItem, BookNote, ReadingGoal, ReadingStats, Collection, CollectionItem, PriceHistory, PriceAlert, Review, register_user, login_user
 from price_tracker import get_price_tracker
 from cache_service import cache_service
@@ -909,6 +909,45 @@ def handle_mood_search():
         return internal_error("A database error occurred during search.")
     except Exception as e:
         logger.error(f"Unexpected error searching mood: {e}")
+        return internal_error(str(e))
+
+
+@app.route('/api/v1/vibe-check', methods=['POST'])
+@rate_limit('vibe_check')
+def handle_vibe_check():
+    """
+    Generate hyper-personalized book recommendations based on a specific vibe.
+    """
+    try:
+        data = request.get_json()
+
+        # Safely validate input
+        if not data or 'vibe_prompt' not in data:
+            return missing_fields_error(["vibe_prompt"])
+
+        vibe_prompt = data['vibe_prompt']
+        count = data.get('count', 3)
+
+        # Call the Gemini pipeline
+        books = get_vibe_recommendations(
+            vibe_prompt=vibe_prompt,
+            count=count
+        )
+
+        if not books:
+            return service_unavailable_error(
+                "Could not generate vibe recommendations right now. Please try again shortly."
+            )
+
+        return success_response(
+            data={
+                "vibe_prompt": vibe_prompt,
+                "books": books,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error in handle_vibe_check: {str(e)}", exc_info=True)
         return internal_error(str(e))
 
 
